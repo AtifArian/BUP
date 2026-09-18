@@ -13,10 +13,11 @@ before it is returned.
 3. [Environment variables](#environment-variables)
 4. [API](#api)
 5. [Testing](#testing)
-6. [Docker fallback](#docker-fallback)
-7. [Dependencies](#dependencies)
-8. [Known limitations](#known-limitations)
-9. [Secret handling](#secret-handling)
+6. [Deploying to Vercel](#deploying-to-vercel)
+7. [Docker fallback](#docker-fallback)
+8. [Dependencies](#dependencies)
+9. [Known limitations](#known-limitations)
+10. [Secret handling](#secret-handling)
 
 ## Architecture
 
@@ -173,6 +174,22 @@ Expected: `10/10 passed` with interpretation, plan validity and cost all checked
 Other helpers in `tests/`: `probe_models.py` (one request per configured model), `check_paraphrases.py`
 and `hidden_candidates.py` (paraphrase robustness against the live model), `load_test.py`
 (concurrency/latency), `failure_injection.py` (provider outages).
+
+## Deploying to Vercel
+
+The repo is zero-config for Vercel's Python runtime: it detects `app/main.py` exporting `app`,
+installs `requirements.txt`, and runs the app as one Fluid-compute function. `vercel.json` sets a
+60 s `maxDuration` and excludes tests/sample packs from the bundle; `.python-version` pins 3.12.
+
+1. Import the GitHub repository in Vercel (or run `vercel deploy` from the repo root).
+2. In *Project → Settings → Environment Variables* add `GEMINI_API_KEY`, `GROQ_API_KEY` and
+   `LLM_MODEL_CHAIN` (see `.env.example`); leave `PORT`/`HOST` unset — Vercel manages them.
+3. After the first deploy, check `https://<project>.vercel.app/health` → `{"status":"ok"}` and post
+   `examples/sample_request.json` to `/optimize-energy`.
+
+Notes: the first request after an idle period pays a cold start (numpy/scipy import, ~2-4 s); a
+free uptime monitor hitting `/health` every few minutes keeps an instance warm during judging.
+In-process caches (interpretation results, 429 cooldowns) are per instance.
 
 ## Docker fallback
 
