@@ -173,7 +173,9 @@ python tests/run_samples.py --url http://localhost:8000
 
 Expected: `10/10 passed` with interpretation, plan validity and cost all checked the way the judge does.
 Other helpers in `tests/`: `probe_models.py` (one request per configured model), `check_paraphrases.py`
-and `hidden_candidates.py` (paraphrase robustness against the live model), `load_test.py`
+and `hidden_candidates.py` (paraphrase robustness against the live model), `prompt_injection.py`
+(15 adversarial notes: override attempts, fake authority, cross-note manipulation, prompt/key
+exfiltration — checks honest interpretation, plan validity and no leakage), `load_test.py`
 (concurrency/latency), `failure_injection.py` (provider outages).
 
 ## Deploying to Render (recommended)
@@ -215,24 +217,24 @@ port `8000`, no secrets baked in — `.env` is excluded by `.dockerignore`):
 
 | | Reference |
 |---|---|
-| Tag | `atifarian/gridwise-optimizer:v1.0.0` |
-| Digest | `atifarian/gridwise-optimizer@sha256:50f50a3814ec80a5bfa7f43e6aba81b12c7289605d1550fc3ed4b97b942b1602` |
+| Tag | `atifarian/gridwise-optimizer:v1.0.1` |
+| Digest | `atifarian/gridwise-optimizer@sha256:8811c3553061532053249b1a1a96dd2747c937cfd080ae6734ad6b880def7cb1` |
 | Hub page | <https://hub.docker.com/r/atifarian/gridwise-optimizer> |
 
 Pull and run (keys are passed at runtime; `GROQ_API_KEY` is optional if only Gemini is used):
 
 ```bash
-docker pull atifarian/gridwise-optimizer:v1.0.0
+docker pull atifarian/gridwise-optimizer:v1.0.1
 ```
 
 ```bash
-docker run --rm -p 8000:8000   -e GEMINI_API_KEY=<gemini-key>   -e GROQ_API_KEY=<groq-key>   -e LLM_MODEL_CHAIN=gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-120b,gemini:gemini-3.1-flash-lite   atifarian/gridwise-optimizer:v1.0.0
+docker run --rm -p 8000:8000   -e GEMINI_API_KEY=<gemini-key>   -e GROQ_API_KEY=<groq-key>   -e LLM_MODEL_CHAIN=gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-120b,gemini:gemini-3.1-flash-lite   atifarian/gridwise-optimizer:v1.0.1
 ```
 
 or with a local `.env` file:
 
 ```bash
-docker run --rm -p 8000:8000 --env-file .env atifarian/gridwise-optimizer:v1.0.0
+docker run --rm -p 8000:8000 --env-file .env atifarian/gridwise-optimizer:v1.0.1
 ```
 
 Then `curl http://localhost:8000/health` → `{"status":"ok"}` (ready within ~5 s of start), and
@@ -269,6 +271,10 @@ guardrails and optimizer formulation are the team's own work.
 
 ## Known limitations
 
+- Operator notes are treated as data: the prompt tells the model that text addressing it, claiming
+  authority, or instructing how other notes are read is `no_op`, and every note is read independently.
+  Verified with `tests/prompt_injection.py` (15/15 resisted), but no prompt is unbreakable — the
+  deterministic guardrails and replay remain the hard boundary.
 - Time windows are whole hours only (as the Problem Statement requires); sub-hour times are not modelled.
 - A note that gives a bare time without AM/PM is disambiguated by the model; as a safety net, a
   `solar_reduction` that lands only on hours with zero solar and no explicit AM/PM wording is read as PM.
