@@ -57,7 +57,7 @@ Requires Python 3.11+ and at least one LLM key: Groq (<https://console.groq.com>
 (<https://aistudio.google.com/apikey>). Configure both for the most headroom; free tiers work.
 
 ```bash
-git clone <repository-url> gridwise && cd gridwise
+git clone https://github.com/AtifArian/BUP.git && cd BUP
 python -m venv .venv
 # Linux/macOS:
 source .venv/bin/activate
@@ -210,28 +210,37 @@ In-process caches (interpretation results, 429 cooldowns) are per instance.
 
 ## Docker fallback
 
-Image: `python:3.11-slim` base, binds `0.0.0.0`, exposes `8000`, no secrets baked in (`.env` is excluded
-by `.dockerignore`).
+Public image on Docker Hub (linux/amd64, `python:3.11-slim` base, binds `0.0.0.0:$PORT`, default
+port `8000`, no secrets baked in — `.env` is excluded by `.dockerignore`):
 
-Pull the submitted image (replace with the exact reference from the submission form):
+| | Reference |
+|---|---|
+| Tag | `atifarian/gridwise-optimizer:v1.0.0` |
+| Digest | `atifarian/gridwise-optimizer@sha256:50f50a3814ec80a5bfa7f43e6aba81b12c7289605d1550fc3ed4b97b942b1602` |
+| Hub page | <https://hub.docker.com/r/atifarian/gridwise-optimizer> |
+
+Pull and run (keys are passed at runtime; `GROQ_API_KEY` is optional if only Gemini is used):
 
 ```bash
-docker pull <registry>/<namespace>/gridwise-optimizer:<tag>
+docker pull atifarian/gridwise-optimizer:v1.0.0
 ```
 
-Run it (the key is passed at runtime, never stored in the image):
-
 ```bash
-docker run --rm -p 8000:8000 -e GROQ_API_KEY=<groq-key> -e GEMINI_API_KEY=<gemini-key> <registry>/<namespace>/gridwise-optimizer:<tag>
+docker run --rm -p 8000:8000   -e GEMINI_API_KEY=<gemini-key>   -e GROQ_API_KEY=<groq-key>   -e LLM_MODEL_CHAIN=gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-120b,gemini:gemini-3.1-flash-lite   atifarian/gridwise-optimizer:v1.0.0
 ```
 
 or with a local `.env` file:
 
 ```bash
-docker run --rm -p 8000:8000 --env-file .env <registry>/<namespace>/gridwise-optimizer:<tag>
+docker run --rm -p 8000:8000 --env-file .env atifarian/gridwise-optimizer:v1.0.0
 ```
 
-Then `curl http://localhost:8000/health` → `{"status":"ok"}`.
+Then `curl http://localhost:8000/health` → `{"status":"ok"}` (ready within ~5 s of start), and
+`curl -s -X POST http://localhost:8000/optimize-energy -H "Content-Type: application/json" -d @examples/sample_request.json`.
+To use a different host port: `-p 9000:8000`. To change the container port: add `-e PORT=9000 -p 9000:9000`.
+
+Verified: the image was pulled by digest onto a clean Docker daemon, started with only the runtime
+env vars above, and passed all 10 public sample cases (`tests/run_samples.py --url http://localhost:8000`).
 
 Build locally instead:
 
