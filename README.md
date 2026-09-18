@@ -13,11 +13,12 @@ before it is returned.
 3. [Environment variables](#environment-variables)
 4. [API](#api)
 5. [Testing](#testing)
-6. [Deploying to Vercel](#deploying-to-vercel)
-7. [Docker fallback](#docker-fallback)
-8. [Dependencies](#dependencies)
-9. [Known limitations](#known-limitations)
-10. [Secret handling](#secret-handling)
+6. [Deploying to Render](#deploying-to-render-recommended)
+7. [Deploying to Vercel](#deploying-to-vercel)
+8. [Docker fallback](#docker-fallback)
+9. [Dependencies](#dependencies)
+10. [Known limitations](#known-limitations)
+11. [Secret handling](#secret-handling)
 
 ## Architecture
 
@@ -174,6 +175,22 @@ Expected: `10/10 passed` with interpretation, plan validity and cost all checked
 Other helpers in `tests/`: `probe_models.py` (one request per configured model), `check_paraphrases.py`
 and `hidden_candidates.py` (paraphrase robustness against the live model), `load_test.py`
 (concurrency/latency), `failure_injection.py` (provider outages).
+
+## Deploying to Render (recommended)
+
+`render.yaml` is a Render Blueprint that builds the root `Dockerfile` and runs it as one web service
+with `/health` as the health check. Render injects `PORT`; the image binds `0.0.0.0:$PORT`.
+
+1. Render dashboard → **New → Blueprint** → select this repository → **Apply**.
+2. Render prompts for `GEMINI_API_KEY` and `GROQ_API_KEY` (marked `sync: false`); paste them there.
+   The model chain and timeouts are already set in `render.yaml`.
+3. Wait for the first deploy (~3-5 min for the image build), then check
+   `https://<service>.onrender.com/health` → `{"status":"ok"}` and post `examples/sample_request.json`.
+
+**Free plan caveat:** free web services spin down after 15 minutes without traffic and take about a
+minute to wake, which exceeds the judge's 30 s request timeout. For the evaluation window either
+switch the service to a paid instance (`plan: 0.5c-512mb` in `render.yaml`, or in the dashboard) or
+keep `/health` pinged every 5-10 minutes with an uptime monitor.
 
 ## Deploying to Vercel
 

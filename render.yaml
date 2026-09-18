@@ -1,0 +1,34 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# Builds the Dockerfile at the repo root and runs it as one web service.
+services:
+  - name: gridwise-optimizer
+    type: web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # "free" spins down after 15 min idle and takes ~1 min to wake, which is
+    # longer than the judge's 30 s request timeout. Use a paid instance
+    # (e.g. "0.5c-512mb") for the judging window, or keep /health pinged.
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      # Secrets: Render prompts for these once when the Blueprint is created.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      # Model chain (see .env.example). Render sets PORT itself; HOST defaults to 0.0.0.0.
+      - key: LLM_MODEL_CHAIN
+        value: gemini:gemini-3.5-flash-lite,groq:openai/gpt-oss-120b,gemini:gemini-3.1-flash-lite
+      - key: GEMINI_REASONING_EFFORT
+        value: low
+      - key: GROQ_REASONING_EFFORT
+        value: low
+      - key: LLM_TIMEOUT_SECONDS
+        value: "10"
+      - key: LLM_BUDGET_SECONDS
+        value: "20"
+      - key: LOG_LEVEL
+        value: INFO
