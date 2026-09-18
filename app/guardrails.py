@@ -24,9 +24,10 @@ ALLOWED = {
 
 def redact(text: str) -> str:
     """Remove anything secret-looking from model-written text before it is returned."""
-    key = os.getenv("GROQ_API_KEY")
-    if key and len(key) >= 8:
-        text = text.replace(key, "[redacted]")
+    for env in ("GROQ_API_KEY", "GEMINI_API_KEY"):
+        key = os.getenv(env)
+        if key and len(key) >= 8:
+            text = text.replace(key, "[redacted]")
     return _SECRET.sub("[redacted]", text)
 
 

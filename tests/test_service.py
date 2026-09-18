@@ -242,3 +242,44 @@ def test_secret_in_model_explanation_is_redacted(monkeypatch):
     r = client.post("/optimize-energy", json=CASES[1]["input"])
     assert "gsk_" not in r.text and "sk-other" not in r.text
     assert "[redacted]" in r.json()["directive_interpretation"][0]["explanation"]
+
+
+# ---- recovery: only the failed note is re-asked, nothing is invented ----
+
+def test_failed_note_is_retried_alone(monkeypatch):
+    """First reply: note 0 fine, note 1 unsupported. Retry sends only note 1 and succeeds."""
+    calls = []
+
+    def fake(system, user, deadline=None):
+        calls.append(user)
+        if len(calls) == 1:
+            return {"directives": [
+                {"note_index": 0, **raw("solar_reduction", [[10, 12]], 50, "remaining_percent")},
+                {"note_index": 1, **raw("turn_off_lights", [[14, 16]])},
+                {"note_index": 2, **raw("no_op", [])}]}
+        return {"directives": [{"note_index": 1, **raw("no_charge_window", [[14, 16]])}]}
+
+    monkeypatch.setattr(interpreter, "chat_json", fake)
+    body = client.post("/optimize-energy", json=CASES[5]["input"]).json()
+    assert len(calls) == 2
+    assert "1:" in calls[1] and "0:" not in calls[1] and "2:" not in calls[1]
+    kinds = [e["directive_type"] for e in body["directive_interpretation"]]
+    assert kinds == ["solar_reduction", "no_charge_window", "no_op"]
+    assert body["directive_interpretation"][1]["structured_adjustment"] == {"hours": [14, 15]}
+
+
+def test_unrecoverable_note_becomes_no_op_not_500(monkeypatch):
+    """If the retry also fails, that note is no_op with an honest explanation; others are kept."""
+    def fake(system, user, deadline=None):
+        return {"directives": [
+            {"note_index": 0, **raw("solar_reduction", [[10, 12]], 50, "remaining_percent")},
+            {"note_index": 1, **raw("no_charge_window", [[14, 99]])},   # always invalid
+            {"note_index": 2, **raw("no_op", [])}]}
+
+    monkeypatch.setattr(interpreter, "chat_json", fake)
+    r = client.post("/optimize-energy", json=CASES[5]["input"])
+    assert r.status_code == 200
+    e = r.json()["directive_interpretation"]
+    assert e[0]["directive_type"] == "solar_reduction"
+    assert e[1]["directive_type"] == "no_op" and e[1]["applies"] is False \
+        and e[1]["structured_adjustment"] is None and "Could not be interpreted" in e[1]["explanation"]

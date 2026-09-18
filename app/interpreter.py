@@ -42,7 +42,7 @@ Time rules:
 - If a time has no AM/PM ("from one until three", "two to four"), pick the reading that fits the activity. Solar output only exists in daylight, so solar notes with bare hours 1-5 mean PM: "one until three" -> [13, 15].
 
 Number rules (report the number exactly as the note states it; do NOT do arithmetic):
-- For percentages or fractions, give "value" as a percentage point number from 0 to 100 (e.g., 50 for "half", 33.33 for "a third", 1 for "1%"). Do NOT use fraction strings.
+- For percentages or fractions, give "value" in PERCENTAGE POINTS from 0 to 100 (e.g., 50 for "half", 20 for "one-fifth", 80 for "an 80% reduction"). Never give a 0-1 fraction like 0.5. For thirds, sixths and similar you may give the exact fraction as a string, e.g. "1/3" or "2/3".
 - solar_reduction: set "value" and "value_meaning":
     "remaining_percent" if the note says what is LEFT/usable ("drop to about 20%", "roughly 25% of the forecast", "half of normal" -> 50, "one-fifth" -> 20, "no solar at all" -> 0);
     "reduction_percent" if the note says how much is LOST ("an 80% reduction", "cut by 30%", "down 40%").
@@ -51,11 +51,11 @@ Number rules (report the number exactly as the note states it; do NOT do arithme
 - no_charge_window, no_discharge_window, no_op: "value": null, "value_meaning": null.
 
 Return ONLY a JSON object:
-{"directives": [{"note_index": 0, "directive_type": "...", "windows": [[start, end]], "value": number or null, "value_meaning": "..." or null, "explanation": "one short sentence"}]}
+{"directives": [{"note_index": 0, "directive_type": "...", "windows": [[start, end]], "value": number, fraction string or null, "value_meaning": "..." or null, "explanation": "one short sentence"}]}
 Return exactly one entry per note, in note_index order. no_op entries use "windows": [].
 
 Examples:
-Note: "PV generation will only be about a third of normal from 9 until 11 in the morning." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[9, 11]], "value": 33.33, "value_meaning": "remaining_percent", "explanation": "Solar limited to one third of forecast 9-11 AM."}
+Note: "PV generation will only be about a third of normal from 9 until 11 in the morning." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[9, 11]], "value": "1/3", "value_meaning": "remaining_percent", "explanation": "Solar limited to one third of forecast 9-11 AM."}
 Note: "Array cleaning from two until four will cut PV to half." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[14, 16]], "value": 50, "value_meaning": "remaining_percent", "explanation": "Solar halved 2-4 PM during cleaning."}
 Note: "Solar will be down 60% between 14:00 and 17:00 due to shading." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[14, 17]], "value": 60, "value_meaning": "reduction_percent", "explanation": "60% solar loss 2-5 PM."}
 Note: "Hold the battery at no less than 150 kWh between 7 and 10 PM." -> {"note_index": 0, "directive_type": "minimum_battery_reserve", "windows": [[19, 22]], "value": 150, "value_meaning": "kwh", "explanation": "Battery reserve of 150 kWh 7-10 PM."}
@@ -66,10 +66,16 @@ Note: "Utility asks us to cap grid draw at 120 kWh per hour from 5 to 7 PM." -> 
 Note: "The auditorium projector will be replaced next Tuesday." -> {"note_index": 0, "directive_type": "no_op", "windows": [], "value": null, "value_meaning": null, "explanation": "Unrelated to today's energy schedule."}"""
 
 
-def _user_prompt(notes: list[str], capacity: float, base_min: float) -> str:
-    listed = "\n".join(f"{i}: {json.dumps(n)}" for i, n in enumerate(notes))
+def _user_prompt(notes: list[str], capacity: float, base_min: float,
+                 indices: list[int] | None = None, retry: bool = False) -> str:
+    """List the notes with their note_index. `indices` lets a retry send a subset."""
+    indices = list(range(len(notes))) if indices is None else indices
+    listed = "\n".join(f"{i}: {json.dumps(n)}" for i, n in zip(indices, notes))
+    hint = ("\nA previous attempt returned invalid output for these notes. Follow the JSON "
+            "schema exactly: one entry per note with the note_index shown, whole-hour "
+            "windows, and a numeric value with value_meaning." if retry else "")
     return (f"Battery capacity: {capacity:g} kWh; standard minimum reserve: {base_min:g} kWh "
-            f"(context only).\n"
+            f"(context only).{hint}\n"
             f"Operator notes ({len(notes)}):\n{listed}")
 
 
@@ -98,19 +104,36 @@ def _expand_windows(windows) -> list[int]:
 
 
 def _number(v) -> float:
-    """A finite number."""
+    """A finite number, or an exact fraction string such as "1/3"."""
+    if isinstance(v, str) and v.count("/") == 1:
+        try:
+            num, den = (float(x) for x in v.split("/"))
+        except ValueError:
+            raise ValueError(f"bad fraction {v!r}")
+        if den == 0:
+            raise ValueError(f"bad fraction {v!r}")
+        v = num / den
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
         raise ValueError(f"bad number {v!r}")
     return float(v)
 
 
-def _percent(v: float) -> float:
-    """Accept percentage point values (e.g., 25 for 25%, 0.5 for 0.5%) and return a fraction.
+def _percent(v) -> float:
+    """Convert the model's percentage to a fraction in [0, 1].
 
-    Rounded recurring decimals (33.33%, 66.67%, 16.67%) are snapped to the exact
+    Canonical input is percentage points (25 means 25%). Two slips are
+    tolerated because they are unambiguous in practice:
+    - a fraction string ("1/3") is exact and is used as-is;
+    - a bare number strictly between 0 and 1 (0.25) is already a fraction —
+      notes never state sub-1% values, so it cannot mean 0.25%.
+    Rounded recurring decimals (33.33, 66.67, 16.67) are snapped to the exact
     fraction, so "a third of 300 kWh" is 100, not 99.99.
     """
-    frac = v / 100.0
+    if isinstance(v, str) and v.count("/") == 1:
+        frac = _number(v)
+    else:
+        n = _number(v)
+        frac = n if 0 < n < 1 else n / 100.0
     for den in (3, 6, 7, 9, 12):
         k = round(frac * den)
         if abs(frac - k / den) < 6e-4:
@@ -128,7 +151,7 @@ def normalise(raw: dict, capacity: float, base_min: float = 0.0) -> dict:
     hours = _expand_windows(raw.get("windows"))
     meaning = raw.get("value_meaning")
     if kind == "solar_reduction":
-        frac = _percent(_number(raw.get("value")))
+        frac = _percent(raw.get("value"))
         if meaning == "reduction_percent":
             factor = 1 - frac
         elif meaning == "remaining_percent":
@@ -137,12 +160,13 @@ def normalise(raw: dict, capacity: float, base_min: float = 0.0) -> dict:
             raise ValueError(f"unknown solar value_meaning {meaning!r}")
         adj = {"hours": hours, "factor": round(factor, 4)}
     elif kind == "minimum_battery_reserve":
-        v = _number(raw.get("value"))
         if meaning == "percent_of_capacity":
-            v = _percent(v) * capacity
+            v = _percent(raw.get("value")) * capacity
         elif meaning == "kwh_above_base_minimum":
-            v = base_min + v
-        elif meaning != "kwh":
+            v = base_min + _number(raw.get("value"))
+        elif meaning == "kwh":
+            v = _number(raw.get("value"))
+        else:
             raise ValueError(f"unknown reserve value_meaning {meaning!r}")
         adj = {"hours": hours, "minimum_energy_kwh": round(v, 4)}
     elif kind == "max_grid_window":
@@ -177,68 +201,88 @@ def _directive_list(out, n_notes: int) -> list | None:
     return None
 
 
-def _interpret_once(notes: list[str], capacity: float, base_min: float,
-                    deadline: float) -> list[dict | None]:
-    """One LLM call; returns a validated entry per note, or None where invalid."""
-    out = chat_json(SYSTEM_PROMPT, _user_prompt(notes, capacity, base_min), deadline=deadline)
+def _interpret_once(notes: list[str], capacity: float, base_min: float, deadline: float,
+                    indices: list[int] | None = None, retry: bool = False) -> dict[int, dict]:
+    """One LLM call over `notes`; returns {note_index: validated entry} for valid notes only.
+
+    `indices` are the original note indices (a retry may send a subset).
+    """
+    indices = list(range(len(notes))) if indices is None else indices
+    out = chat_json(SYSTEM_PROMPT, _user_prompt(notes, capacity, base_min, indices, retry),
+                    deadline=deadline)
     raw = _directive_list(out, len(notes))
     if raw is None:
         raise LLMError("model output has no directive list")
 
-    by_index = {}
+    by_index: dict[int, dict] = {}
     for pos, entry in enumerate(raw):
         if not isinstance(entry, dict):
             continue
-        idx = entry.get("note_index", pos)
-        if isinstance(idx, int) and 0 <= idx < len(notes) and idx not in by_index:
+        idx = entry.get("note_index")
+        if isinstance(idx, bool) or not isinstance(idx, int):
+            idx = indices[pos] if pos < len(indices) else None  # positional fallback
+        if idx in indices and idx not in by_index:
             by_index[idx] = entry
 
-    results: list[dict | None] = []
-    for i in range(len(notes)):
-        entry = None
+    results: dict[int, dict] = {}
+    for i in indices:
+        if i not in by_index:
+            log.warning("note %d missing from model output", i)
+            continue
         try:
-            if i in by_index:
-                entry = normalise(by_index[i], capacity, base_min)
-                entry = {"note_index": i, **entry}
-                problems = guardrails.check_entry(entry, capacity)
-                if problems:
-                    log.warning("note %d rejected by guardrails: %s", i, problems)
-                    entry = None
+            entry = {"note_index": i, **normalise(by_index[i], capacity, base_min)}
         except (ValueError, TypeError) as e:
             log.warning("note %d could not be normalised: %s", i, e)
-            entry = None
-        results.append(entry)
+            continue
+        problems = guardrails.check_entry(entry, capacity)
+        if problems:
+            log.warning("note %d rejected by guardrails: %s", i, problems)
+            continue
+        results[i] = entry
     return results
+
+
+class _Partial(Exception):
+    """Some notes could not be interpreted; `entries` holds None for those."""
+
+    def __init__(self, entries):
+        self.entries = entries
 
 
 @lru_cache(maxsize=512)
 def _interpret_cached(notes: tuple[str, ...], capacity: float, base_min: float) -> tuple:
-    """Interpret with one retry for any note the guardrails rejected."""
+    """Interpret all notes, then retry only the notes that failed.
+
+    Attempt 1 sends every note. Any note that is missing, malformed or rejected
+    by the guardrails is re-sent on its own with a corrective hint (a shorter
+    prompt is more reliable and lets the model chain in app.llm rotate models).
+    Only complete successes are cached.
+    """
     deadline = time.monotonic() + float(os.getenv("LLM_BUDGET_SECONDS", "20"))
+    n = len(notes)
+    got: dict[int, dict] = {}
     try:
-        first = _interpret_once(list(notes), capacity, base_min, deadline)
+        got = _interpret_once(list(notes), capacity, base_min, deadline)
     except LLMError as e:
-        # Unusable reply (e.g. wrong JSON shape): retry below while budget remains.
-        if deadline - time.monotonic() < 2:
-            raise
         log.warning("first interpretation attempt failed: %s", e)
-        first = [None] * len(notes)
-    if all(first):
-        return tuple(first)
-    try:
-        second = _interpret_once(list(notes), capacity, base_min, deadline)
-    except LLMError:
-        second = [None] * len(notes)
-    merged = [a or b for a, b in zip(first, second)]
-    if not all(merged):
-        # Do not cache partial failures; a later request may succeed.
-        raise _Partial(merged)
-    return tuple(merged)
 
+    missing = [i for i in range(n) if i not in got]
+    for i in missing:
+        if deadline - time.monotonic() < 2:
+            log.warning("no budget left to retry note %d", i)
+            break
+        try:
+            got.update(_interpret_once([notes[i]], capacity, base_min, deadline,
+                                       indices=[i], retry=True))
+        except LLMError as e:
+            log.warning("retry for note %d failed: %s", i, e)
+            if "deadline" in str(e) or "unavailable" in str(e):
+                break  # provider is gone; do not burn the remaining budget
 
-class _Partial(Exception):
-    def __init__(self, entries):
-        self.entries = entries
+    entries = [got.get(i) for i in range(n)]
+    if not all(entries):
+        raise _Partial(entries)  # not cached; a later request may succeed
+    return tuple(entries)
 
 
 # Any of these means the note pinned down AM/PM itself, so it must be taken literally.
@@ -274,23 +318,28 @@ def interpret(notes: list[str], capacity: float, solar: list[float] | None = Non
               base_min: float = 0.0) -> tuple[list[dict], list[str]]:
     """Return (directive_interpretation, warnings).
 
-    Safe failure: a note the model cannot interpret validly becomes no_op with
-    an explanation saying so, rather than an invented constraint or a crash.
+    Safe failure (Problem Statement §08): a note the model cannot interpret
+    validly after the retry becomes no_op with an explanation saying so. No
+    directive is ever invented and the service does not crash; the warning is
+    logged and returned so the caller can surface it.
     """
     warnings: list[str] = []
     try:
         entries = list(_interpret_cached(tuple(notes), float(capacity), float(base_min)))
     except _Partial as p:
         entries = p.entries
-    except LLMError as e:
-        log.error("interpretation failed globally: %s", e)
-        raise  # Do not mask infrastructure failure
+    except LLMError as e:  # chat_json only raises after every model/retry is exhausted
+        log.error("interpretation failed: %s", e)
+        entries = [None] * len(notes)
+        warnings.append("language model unavailable")
 
     final = []
     for i, entry in enumerate(entries):
         if entry is None:
-            raise LLMError(f"note {i} could not be interpreted reliably")
-        if solar is not None:
+            warnings.append(f"note {i} could not be interpreted")
+            entry = {"note_index": i, **guardrails.no_op(
+                "Could not be interpreted reliably; no constraint applied.")}
+        elif solar is not None:
             entry = _fix_solar_am_pm(entry, solar, notes[i])
         final.append(dict(entry))
     return final, warnings
