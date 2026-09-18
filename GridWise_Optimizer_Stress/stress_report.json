@@ -1,0 +1,93 @@
+{
+  "seed": 20260918,
+  "per_category": 150,
+  "total": 1200,
+  "validity_passed": 1200,
+  "validity_failed": 0,
+  "cost_within_0_01_bdt": 1198,
+  "cost_differences": 2,
+  "elapsed_seconds": 6.299,
+  "by_category": {
+    "normal": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    },
+    "zero_demand": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    },
+    "zero_rates": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    },
+    "decimals": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    },
+    "full_day_directives": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 2
+    },
+    "tight_grid": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    },
+    "solar_surplus": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    },
+    "all_zero": {
+      "valid": 150,
+      "invalid": 0,
+      "cost_differences": 0
+    }
+  },
+  "coverage": {
+    "three_note_cases": 563,
+    "full_day_directive_cases": 357,
+    "cases_by_directive_type": {
+      "no_charge_window": 471,
+      "max_grid_window": 637,
+      "solar_reduction": 495,
+      "no_discharge_window": 486,
+      "minimum_battery_reserve": 476,
+      "no_op": 70
+    },
+    "shuffled_hours_cases": 471,
+    "zero_demand_cases": 300,
+    "zero_rate_cases": 303
+  },
+  "method": "feasible witness + project replay + independent replay + independently formulated LP cost oracle; no LLM",
+  "validity_failures": [],
+  "cost_precision_diagnostics": [
+    {
+      "id": "RANDOM-full_day_directives-002",
+      "category": "full_day_directives",
+      "validity_passed": true,
+      "cost_within_0_01_bdt": false,
+      "errors": [],
+      "cost_diagnostics": [
+        "BELOW UNROUNDED LP BY >0.01 BDT: returned=83363.3239000, independent=83363.3384845; permitted per-hour rounding may explain this"
+      ],
+      "independent_optimum_bdt": 83363.33848451
+    },
+    {
+      "id": "RANDOM-full_day_directives-089",
+      "category": "full_day_directives",
+      "validity_passed": true,
+      "cost_within_0_01_bdt": false,
+      "errors": [],
+      "cost_diagnostics": [
+        "ABOVE OPTIMUM BY >0.01 BDT: returned=34952.7738000, independently optimum=34952.7634384, excess=0.0103616"
+      ],
+      "independent_optimum_bdt": 34952.76343845
+    }
+  ]
+}

@@ -93,7 +93,9 @@ def optimize_energy(body: OptimizeRequest):
     req = body.model_dump()
     capacity = req["battery"]["capacity_kwh"]
 
-    entries, warnings = interpret(req["operator_notes"], capacity)
+    solar = [h["solar_kwh"] for h in req["hours"]]
+    entries, warnings = interpret(req["operator_notes"], capacity, solar,
+                                  req["battery"]["minimum_energy_kwh"])
     problems = guardrails.check_all(entries, len(req["operator_notes"]), capacity)
     if problems:  # interpreter already guards each entry; this is a last line of defence
         log.error("guardrail failure after interpretation: %s", problems)

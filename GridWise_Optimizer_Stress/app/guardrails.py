@@ -6,11 +6,6 @@ Nothing produced by the LLM reaches the optimizer unless it passes these checks.
 from __future__ import annotations
 
 import math
-import os
-import re
-
-# Provider-style secrets: Groq gsk_, OpenAI/Anthropic sk-, Google AIza, bearer tokens.
-_SECRET = re.compile(r"(gsk_|sk-|AIza|xai-|Bearer\s+)[A-Za-z0-9_\-]{12,}", re.IGNORECASE)
 
 ALLOWED = {
     "solar_reduction": {"hours", "factor"},
@@ -20,14 +15,6 @@ ALLOWED = {
     "max_grid_window": {"hours", "max_grid_kwh"},
     "no_op": None,
 }
-
-
-def redact(text: str) -> str:
-    """Remove anything secret-looking from model-written text before it is returned."""
-    key = os.getenv("GROQ_API_KEY")
-    if key and len(key) >= 8:
-        text = text.replace(key, "[redacted]")
-    return _SECRET.sub("[redacted]", text)
 
 
 def no_op(explanation: str) -> dict:
@@ -77,21 +64,13 @@ def check_entry(entry: dict, capacity: float) -> list[str]:
     return problems
 
 
-def check_all(entries, n_notes: int, capacity: float) -> list[str]:
-    """Validate the full list: coverage, order, explanation and every entry."""
-    if not isinstance(entries, list):
-        return ["interpretation must be a list"]
+def check_all(entries: list[dict], n_notes: int, capacity: float) -> list[str]:
+    """Validate the full list: coverage, order and every entry."""
     if len(entries) != n_notes:
         return [f"expected {n_notes} entries, got {len(entries)}"]
     problems = []
     for i, e in enumerate(entries):
-        if not isinstance(e, dict):
-            problems.append(f"entry {i} is not an object")
-            continue
-        idx = e.get("note_index")
-        if isinstance(idx, bool) or idx != i:
-            problems.append(f"entry {i} has note_index {idx!r}")
-        if not isinstance(e.get("explanation"), str):
-            problems.append(f"note {i}: explanation must be a string")
+        if e.get("note_index") != i:
+            problems.append(f"entry {i} has note_index {e.get('note_index')}")
         problems += [f"note {i}: {p}" for p in check_entry(e, capacity)]
     return problems

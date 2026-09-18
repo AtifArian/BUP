@@ -1,0 +1,12 @@
+REPLAY: 1200/1200 valid; 0 invalid; 6.30s
+COST ORACLE: 1198/1200 within 0.01 BDT; 2 rounding/precision flags
+  normal                150 valid /   0 invalid /   0 cost flags
+  zero_demand           150 valid /   0 invalid /   0 cost flags
+  zero_rates            150 valid /   0 invalid /   0 cost flags
+  decimals              150 valid /   0 invalid /   0 cost flags
+  full_day_directives   150 valid /   0 invalid /   2 cost flags
+  tight_grid            150 valid /   0 invalid /   0 cost flags
+  solar_surplus         150 valid /   0 invalid /   0 cost flags
+  all_zero              150 valid /   0 invalid /   0 cost flags
+COST FLAG RANDOM-full_day_directives-002: ['BELOW UNROUNDED LP BY >0.01 BDT: returned=83363.3239000, independent=83363.3384845; permitted per-hour rounding may explain this']
+COST FLAG RANDOM-full_day_directives-089: ['ABOVE OPTIMUM BY >0.01 BDT: returned=34952.7738000, independently optimum=34952.7634384, excess=0.0103616']

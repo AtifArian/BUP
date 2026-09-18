@@ -1,0 +1,10 @@
+REPLAY: 1200/1200 valid; 0 invalid; 5.86s
+COST ORACLE: 1200/1200 within 0.01 BDT; 0 rounding/precision flags
+  normal                150 valid /   0 invalid /   0 cost flags
+  zero_demand           150 valid /   0 invalid /   0 cost flags
+  zero_rates            150 valid /   0 invalid /   0 cost flags
+  decimals              150 valid /   0 invalid /   0 cost flags
+  full_day_directives   150 valid /   0 invalid /   0 cost flags
+  tight_grid            150 valid /   0 invalid /   0 cost flags
+  solar_surplus         150 valid /   0 invalid /   0 cost flags
+  all_zero              150 valid /   0 invalid /   0 cost flags

@@ -27,8 +27,7 @@ H = 24
 G, S, C, D, E = range(5)  # variable blocks
 N = 5 * H
 
-ROUND = 6  # decimals in the returned plan; 4 let 24 rounded hours drift the cost by ~0.01 BDT
-FEASIBILITY_SLACK = 0.005  # kWh; half the judge's 0.01 tolerance, used only if the exact LP is infeasible
+ROUND = 4  # decimals in the returned plan (judge tolerance is 0.01)
 
 
 class OptimizationError(Exception):
@@ -70,10 +69,10 @@ def effective_bounds(hours: list[dict], battery: dict, directives: list[dict]) -
     return {"solar": solar, "min_e": min_e, "max_c": max_c, "max_d": max_d, "max_g": max_g}
 
 
-def _build(hours: list[dict], battery: dict, lim: dict, slack: float = 0.0):
+def _build(hours: list[dict], battery: dict, lim: dict):
     demand = [float(h["demand_kwh"]) for h in hours]
     init = float(battery["initial_energy_kwh"])
-    cap = float(battery["capacity_kwh"]) + slack
+    cap = float(battery["capacity_kwh"])
 
     a_eq = np.zeros((2 * H + 1, N))
     b_eq = np.zeros(2 * H + 1)
@@ -98,11 +97,11 @@ def _build(hours: list[dict], battery: dict, lim: dict, slack: float = 0.0):
 
     bounds = []
     for h in range(H):
-        bounds.append((0, None if np.isinf(lim["max_g"][h]) else lim["max_g"][h] + slack))
-    bounds += [(0, lim["solar"][h] + slack) for h in range(H)]
-    bounds += [(0, lim["max_c"][h] + slack) for h in range(H)]
-    bounds += [(0, lim["max_d"][h] + slack) for h in range(H)]
-    bounds += [(max(0.0, lim["min_e"][h] - slack), cap) for h in range(H)]
+        bounds.append((0, None if np.isinf(lim["max_g"][h]) else lim["max_g"][h]))
+    bounds += [(0, lim["solar"][h]) for h in range(H)]
+    bounds += [(0, lim["max_c"][h]) for h in range(H)]
+    bounds += [(0, lim["max_d"][h]) for h in range(H)]
+    bounds += [(lim["min_e"][h], cap) for h in range(H)]
     return a_eq, b_eq, bounds
 
 
@@ -114,19 +113,13 @@ def optimize(hours: list[dict], battery: dict, directives: list[dict]) -> list[d
         if lim["min_e"][h] > float(battery["capacity_kwh"]) + 1e-9:
             raise OptimizationError(f"reserve above capacity at hour {h}")
 
+    a_eq, b_eq, bounds = _build(hours, battery, lim)
     tariff = np.array([float(h["tariff_bdt_per_kwh"]) for h in hours])
+
     cost = np.zeros(N)
     cost[G * H:(G + 1) * H] = tariff
-
-    # A limit can sit a hair below what the data forces (e.g. a cap rounded down
-    # by 0.000005 kWh). The judge replays with a 0.01 tolerance, so before
-    # declaring a case infeasible, retry with every limit relaxed by half of it.
-    for slack in (0.0, FEASIBILITY_SLACK):
-        a_eq, b_eq, bounds = _build(hours, battery, lim, slack)
-        res = linprog(cost, A_eq=a_eq, b_eq=b_eq, bounds=bounds, method="highs")
-        if res.status == 0:
-            break
-    else:
+    res = linprog(cost, A_eq=a_eq, b_eq=b_eq, bounds=bounds, method="highs")
+    if res.status != 0:
         raise OptimizationError(f"no feasible schedule ({res.message})")
 
     # Phase 2: same optimal cost, minimum battery throughput.
@@ -140,7 +133,7 @@ def optimize(hours: list[dict], battery: dict, directives: list[dict]) -> list[d
     )
     x = res2.x if res2.status == 0 else res.x
 
-    return _to_plan(x, hours, battery, lim, slack)
+    return _to_plan(x, hours, battery, lim)
 
 
 def _r(v: float) -> float:
@@ -148,7 +141,7 @@ def _r(v: float) -> float:
     return 0.0 if v == 0 else v  # drop -0.0
 
 
-def _to_plan(x, hours: list[dict], battery: dict, lim: dict, slack: float = 0.0) -> list[dict]:
+def _to_plan(x, hours: list[dict], battery: dict, lim: dict) -> list[dict]:
     """Convert the LP vector into plan entries that replay exactly.
 
     Battery levels are rounded first and every other value is derived from
@@ -171,7 +164,7 @@ def _to_plan(x, hours: list[dict], battery: dict, lim: dict, slack: float = 0.0)
 
         demand = float(hours[h]["demand_kwh"])
         need = demand + net  # grid + solar must cover this
-        solar = min(_r(x[_idx(S, h)]), lim["solar"][h] + slack, max(need, 0.0))
+        solar = min(_r(x[_idx(S, h)]), lim["solar"][h], max(need, 0.0))
         grid = _r(need - solar)
         if grid < 0:  # rounding residue: shave solar instead of exporting
             solar, grid = _r(need), 0.0

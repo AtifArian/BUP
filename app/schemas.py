@@ -4,15 +4,25 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, StringConstraints, field_validator, model_validator
 
-Finite = Annotated[float, Field(allow_inf_nan=False)]
-NonNeg = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+
+def _json_number(v):
+    """Only real JSON numbers: reject true/false and numeric strings like "5"."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError("must be a JSON number")
+    return v
+
+
+Number = BeforeValidator(_json_number)
+Finite = Annotated[float, Number, Field(allow_inf_nan=False)]
+NonNeg = Annotated[float, Number, Field(ge=0, allow_inf_nan=False)]
+HourIndex = Annotated[int, Number, Field(ge=0, le=23)]
 Note = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
 class HourEntry(BaseModel):
-    hour: int = Field(ge=0, le=23)
+    hour: HourIndex
     demand_kwh: NonNeg
     solar_kwh: NonNeg
     tariff_bdt_per_kwh: Finite

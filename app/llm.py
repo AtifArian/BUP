@@ -16,7 +16,12 @@ import httpx
 
 log = logging.getLogger("gridwise.llm")
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+def _url() -> str:
+    base = os.getenv("GROQ_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+    return f"{base}/chat/completions"
 
 
 class LLMError(Exception):
@@ -50,7 +55,7 @@ def chat_json(system: str, user: str, deadline: float | None = None) -> dict:
     per_call = float(os.getenv("LLM_TIMEOUT_SECONDS", "10"))
     if deadline is None:
         deadline = time.monotonic() + float(os.getenv("LLM_BUDGET_SECONDS", "20"))
-    effort = os.getenv("GROQ_REASONING_EFFORT", "medium")  # gpt-oss: low|medium|high
+    effort = os.getenv("GROQ_REASONING_EFFORT", "low")  # gpt-oss: low|medium|high
 
     models = _models()
     cooldown: dict[str, float] = {}  # model -> monotonic time it may be retried
@@ -76,7 +81,7 @@ def chat_json(system: str, user: str, deadline: float | None = None) -> dict:
             if effort:
                 body["reasoning_effort"] = effort
             try:
-                r = httpx.post(GROQ_URL, headers={"Authorization": f"Bearer {key}"},
+                r = httpx.post(_url(), headers={"Authorization": f"Bearer {key}"},
                                json=body, timeout=min(per_call, left))
             except httpx.HTTPError as e:
                 last = f"{model}: {type(e).__name__}"

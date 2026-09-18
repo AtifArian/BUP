@@ -1,0 +1,528 @@
+{
+  "_meta": {
+    "title": "Local guardrail model-output injection fixtures",
+    "note": "Use against your own validation function; not runnable over public /optimize-energy, which accepts notes, not LLM outputs.",
+    "battery_capacity_kwh": 180,
+    "base_minimum_energy_kwh": 30,
+    "operator_notes": [
+      "Rooftop solar forecast falls by 80% from 11:00 to 14:00.",
+      "Next month the registrar changes its appointment calendar."
+    ],
+    "fixtures": 19
+  },
+  "fixtures": [
+    {
+      "name": "Valid two-note interpretation",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": true,
+      "reason": "Control fixture."
+    },
+    {
+      "name": "Unsupported invented directive",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "reduce_tariff",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Allowed enum only"
+    },
+    {
+      "name": "Missing note entry",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "One entry for every note"
+    },
+    {
+      "name": "Duplicate note index",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 0,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Unique mapping"
+    },
+    {
+      "name": "Reversed note order",
+      "model_output": [
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "note_index order"
+    },
+    {
+      "name": "no_op with applies=true",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": true,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "no_op requires applies=false"
+    },
+    {
+      "name": "no_op with non-null adjustment",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": {
+            "hours": [
+              1
+            ]
+          },
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "no_op adjustment must be null"
+    },
+    {
+      "name": "Relevant note with applies=false",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": false,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "All relevant directives must apply"
+    },
+    {
+      "name": "Hours unsorted",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              13,
+              11,
+              12
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Hours strictly increasing"
+    },
+    {
+      "name": "Hour repeated",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              11,
+              12
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Unique hours"
+    },
+    {
+      "name": "Hour 24",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              23,
+              24
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Hours only 0..23"
+    },
+    {
+      "name": "Incorrect factor >1",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 1.2
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Solar factor between 0 and 1"
+    },
+    {
+      "name": "Factor expressed as string",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": "0.2"
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Finite numeric factor required"
+    },
+    {
+      "name": "Missing factor",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ]
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Required adjustment shape"
+    },
+    {
+      "name": "Reserve over capacity",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "minimum_battery_reserve",
+          "structured_adjustment": {
+            "hours": [
+              18
+            ],
+            "minimum_energy_kwh": 181
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Reserve may not exceed battery capacity 180"
+    },
+    {
+      "name": "Negative grid cap",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "max_grid_window",
+          "structured_adjustment": {
+            "hours": [
+              18
+            ],
+            "max_grid_kwh": -1
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Grid cap non-negative"
+    },
+    {
+      "name": "Nonfinite reserve value",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "minimum_battery_reserve",
+          "structured_adjustment": {
+            "hours": [
+              18
+            ],
+            "minimum_energy_kwh": "Infinity"
+          },
+          "explanation": "Interpretation of the note."
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "No nonfinite numeric inputs"
+    },
+    {
+      "name": "Missing explanation",
+      "model_output": [
+        {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          }
+        },
+        {
+          "note_index": 1,
+          "applies": false,
+          "directive_type": "no_op",
+          "structured_adjustment": null,
+          "explanation": "Interpretation of the note."
+        }
+      ],
+      "expected_accept": false,
+      "reason": "Response explanation field required"
+    },
+    {
+      "name": "Non-array model output",
+      "model_output": {
+        "interpretation": {
+          "note_index": 0,
+          "applies": true,
+          "directive_type": "solar_reduction",
+          "structured_adjustment": {
+            "hours": [
+              11,
+              12,
+              13
+            ],
+            "factor": 0.2
+          },
+          "explanation": "Interpretation of the note."
+        }
+      },
+      "expected_accept": false,
+      "reason": "Expected array of entries"
+    }
+  ]
+}

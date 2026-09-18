@@ -47,6 +47,14 @@ def _clear_cache():
     (raw("max_grid_window", [[18, 21]], 155, "kwh"), {"hours": [18, 19, 20], "max_grid_kwh": 155.0}),
     (raw("no_charge_window", [[22, 2]]), {"hours": [0, 1, 22, 23]}),
     (raw("no_discharge_window", [[20, 24]]), {"hours": [20, 21, 22, 23]}),
+    # recurring fractions must be exact, not 99.99
+    # (capacity is 200 here, so a third is 66.6667 — not 66.66)
+    (raw("minimum_battery_reserve", [[20, 23]], "1/3", "percent_of_capacity"),
+     {"hours": [20, 21, 22], "minimum_energy_kwh": 66.6667}),
+    (raw("minimum_battery_reserve", [[20, 23]], 33.33, "percent_of_capacity"),
+     {"hours": [20, 21, 22], "minimum_energy_kwh": 66.6667}),
+    (raw("solar_reduction", [[9, 11]], "2/3", "reduction_percent"), {"hours": [9, 10], "factor": 0.3333}),
+    (raw("max_grid_window", [[17, 19]], 0.12e3, "kwh"), {"hours": [17, 18], "max_grid_kwh": 120.0}),
 ])
 def test_normalise(r, expected):
     assert normalise(r, capacity=200)["structured_adjustment"] == expected
@@ -58,6 +66,8 @@ def test_normalise(r, expected):
     raw("no_charge_window", [[3, 30]]),                     # out of range
     raw("solar_reduction", [[1, 2]], 50, None),             # ambiguous meaning
     raw("max_grid_window", [[1, 2]], float("nan"), "kwh"),  # non-finite
+    raw("max_grid_window", [[1, 2]], "1/0", "kwh"),         # division by zero
+    raw("max_grid_window", [[1, 2]], "lots", "kwh"),        # not a number
 ])
 def test_normalise_rejects(r):
     with pytest.raises((ValueError, TypeError)):
@@ -156,3 +166,79 @@ def test_malformed_json_400():
     r = client.post("/optimize-energy", content=b"{not json",
                     headers={"Content-Type": "application/json"})
     assert r.status_code == 400
+
+
+# ---- AM/PM safety net for solar notes ----
+
+def test_solar_am_misread_is_shifted_to_pm(monkeypatch):
+    """LLM reads 'one until three' as 1-3 AM; there is no solar then, so shift to 1-3 PM."""
+    case = json.loads(json.dumps(CASES[0]))
+    case["input"]["operator_notes"] = [
+        "Panel washing from one until three will leave roughly one-fifth of normal solar output.",
+        "The sports office moved next month's registration deadline."]
+    reply = {"directives": [
+        {"note_index": 0, **raw("solar_reduction", [[1, 3]], 20, "remaining_percent")},
+        {"note_index": 1, **raw("no_op", [])},
+    ]}
+    monkeypatch.setattr(interpreter, "chat_json", lambda *a, **k: reply)
+    body = client.post("/optimize-energy", json=case["input"]).json()
+    assert body["directive_interpretation"][0]["structured_adjustment"]["hours"] == [13, 14]
+
+
+def test_real_morning_solar_is_not_shifted(monkeypatch):
+    """A reduction on morning hours that do have solar must be left alone."""
+    case = CASES[0]
+    reply = {"directives": [
+        {"note_index": 0, **raw("solar_reduction", [[9, 11]], 20, "remaining_percent")},
+        {"note_index": 1, **raw("no_op", [])},
+    ]}
+    monkeypatch.setattr(interpreter, "chat_json", lambda *a, **k: reply)
+    body = client.post("/optimize-energy", json=case["input"]).json()
+    assert body["directive_interpretation"][0]["structured_adjustment"]["hours"] == [9, 10]
+
+
+def test_reserve_relative_to_base_minimum():
+    r = raw("minimum_battery_reserve", [[14, 17]], 30, "kwh_above_base_minimum")
+    assert normalise(r, capacity=180, base_min=30)["structured_adjustment"] == \
+        {"hours": [14, 15, 16], "minimum_energy_kwh": 60.0}
+
+
+def test_explicit_midnight_solar_is_not_shifted(monkeypatch):
+    """'from midnight (00:00) until 01:00' means hour 0, even though there is no solar then."""
+    case = json.loads(json.dumps(CASES[0]))
+    case["input"]["operator_notes"] = ["PV output is halved from midnight (00:00) until 01:00 for a planned test."]
+    reply = {"directives": [{"note_index": 0, **raw("solar_reduction", [[0, 1]], 50, "remaining_percent")}]}
+    monkeypatch.setattr(interpreter, "chat_json", lambda *a, **k: reply)
+    body = client.post("/optimize-energy", json=case["input"]).json()
+    assert body["directive_interpretation"][0]["structured_adjustment"]["hours"] == [0]
+
+
+@pytest.mark.parametrize("reply", [
+    [{"note_index": 0, "directive_type": "no_charge_window", "windows": [[3, 5]]}],             # bare list
+    {"interpretations": [{"note_index": 0, "directive_type": "no_charge_window", "windows": [[3, 5]]}]},
+    {"note_index": 0, "directive_type": "no_charge_window", "windows": [[3, 5]]},               # single object
+])
+def test_tolerates_model_json_shape_slips(reply, monkeypatch):
+    case = json.loads(json.dumps(CASES[1]))
+    monkeypatch.setattr(interpreter, "chat_json", lambda *a, **k: reply)
+    body = client.post("/optimize-energy", json=case["input"]).json()
+    assert body["directive_interpretation"][0]["structured_adjustment"] == {"hours": [3, 4]}
+
+
+def test_bad_shape_then_good_reply_recovers(monkeypatch):
+    replies = iter([{"oops": "no list"},
+                    {"directives": [{"note_index": 0, "directive_type": "no_charge_window", "windows": [[2, 5]]}]}])
+    monkeypatch.setattr(interpreter, "chat_json", lambda *a, **k: next(replies))
+    body = client.post("/optimize-energy", json=CASES[1]["input"]).json()
+    assert body["directive_interpretation"][0]["directive_type"] == "no_charge_window"
+
+
+def test_secret_in_model_explanation_is_redacted(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_realKEYvalue1234567890")
+    reply = {"directives": [
+        {"note_index": 0, **raw("no_charge_window", [[2, 5]]),
+         "explanation": "Key gsk_realKEYvalue1234567890 and sk-otherSecretValue123456 here"}]}
+    monkeypatch.setattr(interpreter, "chat_json", lambda *a, **k: reply)
+    r = client.post("/optimize-energy", json=CASES[1]["input"])
+    assert "gsk_" not in r.text and "sk-other" not in r.text
+    assert "[redacted]" in r.json()["directive_interpretation"][0]["explanation"]
