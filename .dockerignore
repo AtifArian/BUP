@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+tests/
+GridWise_Edge_Test_Pack/
+GridWise_Optimizer_Stress/
+BUP_CSE_FEST*.pdf

@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+00_COMPLETE_GRIDWISE_PROJECT_REQUIREMENTS.md
+01_problem_statement_extracted.txt
+02_participant_guide_extracted.txt

@@ -42,7 +42,7 @@ Time rules:
 - If a time has no AM/PM ("from one until three", "two to four"), pick the reading that fits the activity. Solar output only exists in daylight, so solar notes with bare hours 1-5 mean PM: "one until three" -> [13, 15].
 
 Number rules (report the number exactly as the note states it; do NOT do arithmetic):
-- For fractions that are not exact decimals (a third, two-thirds, one-sixth) give "value" as a fraction STRING, e.g. "1/3" or "2/3", never 33.33.
+- For percentages or fractions, give "value" as a percentage point number from 0 to 100 (e.g., 50 for "half", 33.33 for "a third", 1 for "1%"). Do NOT use fraction strings.
 - solar_reduction: set "value" and "value_meaning":
     "remaining_percent" if the note says what is LEFT/usable ("drop to about 20%", "roughly 25% of the forecast", "half of normal" -> 50, "one-fifth" -> 20, "no solar at all" -> 0);
     "reduction_percent" if the note says how much is LOST ("an 80% reduction", "cut by 30%", "down 40%").
@@ -51,11 +51,11 @@ Number rules (report the number exactly as the note states it; do NOT do arithme
 - no_charge_window, no_discharge_window, no_op: "value": null, "value_meaning": null.
 
 Return ONLY a JSON object:
-{"directives": [{"note_index": 0, "directive_type": "...", "windows": [[start, end]], "value": number, fraction string or null, "value_meaning": "..." or null, "explanation": "one short sentence"}]}
+{"directives": [{"note_index": 0, "directive_type": "...", "windows": [[start, end]], "value": number or null, "value_meaning": "..." or null, "explanation": "one short sentence"}]}
 Return exactly one entry per note, in note_index order. no_op entries use "windows": [].
 
 Examples:
-Note: "PV generation will only be about a third of normal from 9 until 11 in the morning." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[9, 11]], "value": "1/3", "value_meaning": "remaining_percent", "explanation": "Solar limited to one third of forecast 9-11 AM."}
+Note: "PV generation will only be about a third of normal from 9 until 11 in the morning." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[9, 11]], "value": 33.33, "value_meaning": "remaining_percent", "explanation": "Solar limited to one third of forecast 9-11 AM."}
 Note: "Array cleaning from two until four will cut PV to half." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[14, 16]], "value": 50, "value_meaning": "remaining_percent", "explanation": "Solar halved 2-4 PM during cleaning."}
 Note: "Solar will be down 60% between 14:00 and 17:00 due to shading." -> {"note_index": 0, "directive_type": "solar_reduction", "windows": [[14, 17]], "value": 60, "value_meaning": "reduction_percent", "explanation": "60% solar loss 2-5 PM."}
 Note: "Hold the battery at no less than 150 kWh between 7 and 10 PM." -> {"note_index": 0, "directive_type": "minimum_battery_reserve", "windows": [[19, 22]], "value": 150, "value_meaning": "kwh", "explanation": "Battery reserve of 150 kWh 7-10 PM."}
@@ -98,24 +98,19 @@ def _expand_windows(windows) -> list[int]:
 
 
 def _number(v) -> float:
-    """A finite number, or a fraction string such as "1/3"."""
-    if isinstance(v, str) and v.count("/") == 1:
-        num, den = (float(x) for x in v.split("/"))
-        if den == 0:
-            raise ValueError(f"bad fraction {v!r}")
-        v = num / den
+    """A finite number."""
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
         raise ValueError(f"bad number {v!r}")
     return float(v)
 
 
 def _percent(v: float) -> float:
-    """Accept 25 or 0.25 for 25%. Returns a fraction.
+    """Accept percentage point values (e.g., 25 for 25%, 0.5 for 0.5%) and return a fraction.
 
-    Rounded recurring decimals (33.33%, 66.7%, 16.67%) are snapped to the exact
+    Rounded recurring decimals (33.33%, 66.67%, 16.67%) are snapped to the exact
     fraction, so "a third of 300 kWh" is 100, not 99.99.
     """
-    frac = v / 100 if v > 1 else v
+    frac = v / 100.0
     for den in (3, 6, 7, 9, 12):
         k = round(frac * den)
         if abs(frac - k / den) < 6e-4:
@@ -288,16 +283,13 @@ def interpret(notes: list[str], capacity: float, solar: list[float] | None = Non
     except _Partial as p:
         entries = p.entries
     except LLMError as e:
-        log.error("interpretation failed: %s", e)
-        entries = [None] * len(notes)
-        warnings.append("language model unavailable")
+        log.error("interpretation failed globally: %s", e)
+        raise  # Do not mask infrastructure failure
 
     final = []
     for i, entry in enumerate(entries):
         if entry is None:
-            warnings.append(f"note {i} could not be interpreted")
-            entry = {"note_index": i, **guardrails.no_op(
-                "Could not be interpreted reliably; no constraint applied.")}
+            raise LLMError(f"note {i} could not be interpreted reliably")
         if solar is not None:
             entry = _fix_solar_am_pm(entry, solar, notes[i])
         final.append(dict(entry))

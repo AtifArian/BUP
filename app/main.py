@@ -52,22 +52,18 @@ def health():
 
 
 def _schedule(req: dict, entries: list[dict]) -> tuple[list[dict], list[dict], list[int]]:
-    """Optimize with every applicable directive.
+    """Optimize with exactly the applicable directives.
 
-    Judge scenarios are always feasible under the true directives, so
-    infeasibility means a note was misread. In that case fall back to the
-    largest subset of directives that is feasible, and report which were dropped.
+    The organizer guarantees that valid scoring scenarios are feasible under
+    their ground-truth directives. If the problem is infeasible, it is an
+    internal interpretation or math failure.
     """
     active = [e for e in entries if e["applies"]]
-    for keep in range(len(active), -1, -1):
-        for subset in itertools.combinations(active, keep):
-            try:
-                plan = optimize(req["hours"], req["battery"], list(subset))
-            except OptimizationError:
-                continue
-            dropped = [e["note_index"] for e in active if e not in subset]
-            return plan, list(subset), dropped
-    raise OptimizationError("scenario is infeasible even without operator directives")
+    try:
+        plan = optimize(req["hours"], req["battery"], active)
+    except OptimizationError as e:
+        raise OptimizationError(f"scenario is infeasible: {e}")
+    return plan, active, []
 
 
 def _summary(entries: list[dict], plan: list[dict], cost: float, dropped: list[int]) -> str:
@@ -118,7 +114,8 @@ def optimize_energy(body: OptimizeRequest):
         "plan_summary": _summary(entries, plan, tot["total_cost_bdt"], dropped),
     }
 
-    replay_errors = check_plan(req, applied, response)
+    replay_errors = check_plan(req, entries, response)
     if replay_errors:
         log.error("%s: final replay found issues: %s", req["scenario_id"], replay_errors[:5])
+        return JSONResponse(status_code=500, content={"error": "internal validation failed"})
     return response

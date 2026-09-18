@@ -83,6 +83,15 @@ def chat_json(system: str, user: str, deadline: float | None = None) -> dict:
             try:
                 r = httpx.post(_url(), headers={"Authorization": f"Bearer {key}"},
                                json=body, timeout=min(per_call, left))
+                
+                # If a fallback model doesn't support reasoning_effort, Groq returns HTTP 400
+                if r.status_code == 400 and "reasoning_effort" in body:
+                    log.info("LLM %s rejected reasoning_effort; retrying without it", model)
+                    del body["reasoning_effort"]
+                    left = deadline - time.monotonic()
+                    if left > 1:
+                        r = httpx.post(_url(), headers={"Authorization": f"Bearer {key}"},
+                                       json=body, timeout=min(per_call, left))
             except httpx.HTTPError as e:
                 last = f"{model}: {type(e).__name__}"
                 log.warning("LLM call failed: %s", last)
